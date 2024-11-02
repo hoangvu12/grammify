@@ -1,17 +1,12 @@
-import { computePosition, flip, offset, Rect } from "@floating-ui/dom";
+import { computePosition, offset, Rect } from "@floating-ui/dom";
 import { diffWords } from "diff";
-import type {
-  GenerateResponse,
-  GenerateRequest,
-  ListResponse,
-} from "ollama/browser";
 
 const buttonSize = 24;
 const buttonPadding = 8;
 
 const checkIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#059669" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.801 10A10 10 0 1 1 17 3.335"/><path d="m9 11 3 3L22 4"/></svg>`;
 
-const infoIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>`;
+const infoIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#007bff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>`;
 
 const powerIcon = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#f97316" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v4"/><path d="M7.998 9.003a5 5 0 1 0 8-.005"/><circle cx="12" cy="12" r="10"/></svg>`;
 
@@ -26,140 +21,52 @@ const resultFromPromise = <T>(promise: Promise<T>): Promise<Result<T>> => {
   );
 };
 
-const isVisible = (el: HTMLElement, parent: HTMLElement) => {
-  const rect = el.getBoundingClientRect();
-
-  // check coords on the left of the button to handle cases with little textarea (twitter)
-  const coords = [
-    [rect.left - buttonSize - 1, rect.top + 4],
-    [rect.right - buttonSize - 1, rect.top + 4],
-    [rect.right - buttonSize - 1, rect.bottom - 4],
-    [rect.left - buttonSize - 1, rect.bottom - 4],
-  ];
-
-  for (let coord of coords) {
-    const other = document.elementFromPoint(coord[0], coord[1]);
-    if (!(other && (parent === other || parent.contains(other)))) {
-      return false;
-    }
-  }
-
-  return true;
-};
-
-function createDiff(str1: string, str2: string) {
-  const diff = diffWords(str1, str2);
-  const fragment = document.createDocumentFragment();
-  for (let i = 0; i < diff.length; i++) {
-    if (diff[i].added && diff[i + 1] && diff[i + 1].removed) {
-      const swap = diff[i];
-      diff[i] = diff[i + 1];
-      diff[i + 1] = swap;
-    }
-
-    let node: HTMLElement | Text;
-    if (diff[i].removed) {
-      node = document.createElement("del");
-      node.style.background = "#ffe6e6";
-      node.style.color = "#c00";
-      node.appendChild(document.createTextNode(diff[i].value));
-    } else if (diff[i].added) {
-      node = document.createElement("ins");
-      node.style.background = "#e6ffe6";
-      node.style.color = "#0c0";
-      node.appendChild(document.createTextNode(diff[i].value));
-    } else {
-      node = document.createTextNode(diff[i].value);
-    }
-    fragment.appendChild(node);
-  }
-
-  return fragment;
-}
-
 interface Provider {
   isSupported: () => Promise<boolean>;
   fixGrammar: (text: string) => Promise<string>;
 }
 
-class GeminiProvider implements Provider {
+class DuckDuckGoProvider implements Provider {
   #abortController = new AbortController();
 
   async isSupported() {
-    try {
-      const result = await (
-        self.ai.languageModel ?? self.ai.assistant
-      ).capabilities();
-      return result.available === "readily";
-    } catch (e) {
-      console.warn(e);
-      return false;
-    }
+    return true;
   }
 
   async fixGrammar(text: string) {
     this.#abortController.abort();
     this.#abortController = new AbortController();
-    const session = await (self.ai.languageModel ?? self.ai.assistant).create({
+
+    const response = await fetch("https://duck.nguyenvu.dev/api/chat", {
+      method: "POST",
       signal: this.#abortController.signal,
-      systemPrompt: "correct grammar in text, don't add explanations",
+      body: JSON.stringify({
+        model: "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
+        messages: [
+          {
+            role: "user",
+            content: `I want you to act as an expert in English language arts with advanced experience in proofreading, editing, spelling, grammar, proper sentence structure, and punctuation. You have critical thinking skills with the ability to analyze and evaluate information, arguments, and ideas, and to make logical and well-supported judgments and decisions. You will be provided content from a professional business to proofread in the form of emails, texts, and instant messages to make sure they are error-free before sending. Your approach would be to carefully read through each communication to identify any errors, inconsistencies, or areas where clarity could be improved. Your overall goal is to ensure communications are error-free, clear, and effective in achieving their intended purpose. You will make appropriate updates to increase readability, professionalism, and cohesiveness, while also ensuring that your intended meaning is conveyed accurately. I want you to only reply to the corrections, and nothing else, do not write explanations\n\nText: ${text}`,
+          },
+        ],
+      }),
+      headers: {
+        "Content-Type": "application/json",
+      },
     });
 
-    const prompt =
-      // @prettier-ignore
-      `correct grammar:
-  ${text}
-  `;
+    const responseText = await response.text();
 
-    const result = (
-      await session.prompt(prompt, { signal: this.#abortController.signal })
-    ).trim();
+    const data = responseText
+      .split("\n")
+      .filter((line) => Boolean(line) && !line.includes("[DONE]"))
+      .map((line) => JSON.parse(line.replace("data: ", "")));
 
-    session.destroy();
+    const message = data
+      .filter((item) => item.message !== "")
+      .map((item) => item.message)
+      .join("");
 
-    return result;
-  }
-}
-
-class OllamaProvider implements Provider {
-  async isSupported() {
-    try {
-      const result: ListResponse | null = await chrome.runtime.sendMessage({
-        type: "ollama.list",
-      });
-
-      if (!result) {
-        return false;
-      }
-
-      return result.models.length > 0;
-    } catch (e) {
-      console.warn(e);
-      return false;
-    }
-  }
-
-  async fixGrammar(text: string) {
-    const prompt =
-      // @prettier-ignore
-      `correct grammar:
-  ${text}
-  `;
-
-    const response: GenerateResponse | null = await chrome.runtime.sendMessage({
-      type: "ollama.generate",
-      data: {
-        model: "llama3.1",
-        prompt,
-        system: "correct grammar in text, don't add explanations",
-      } satisfies GenerateRequest,
-    });
-
-    if (!response) {
-      throw new Error("Make sure that Ollama is installed and running.");
-    }
-
-    return response.response;
+    return message;
   }
 }
 
@@ -185,11 +92,56 @@ const recursivelyFindAllTextAreas = (node: Node) => {
   return inputs;
 };
 
+const getButtonVerticalPadding = (rect: Rect) => {
+  if (rect.height < buttonSize + buttonPadding * 2) {
+    return Math.max(0, rect.height - buttonSize) / 2;
+  }
+
+  return buttonPadding;
+};
+
+type State =
+  | { type: "loading" }
+  | { type: "wrong"; diff: DocumentFragment }
+  | { type: "correct" }
+  | { type: "error" };
+
+function createDiff(str1: string, str2: string) {
+  const diff = diffWords(str1, str2);
+  const fragment = document.createDocumentFragment();
+  for (let i = 0; i < diff.length; i++) {
+    if (diff[i].added && diff[i + 1] && diff[i + 1].removed) {
+      const swap = diff[i];
+      diff[i] = diff[i + 1];
+      diff[i + 1] = swap;
+    }
+
+    let node: HTMLElement | Text;
+    if (diff[i].removed) {
+      node = document.createElement("del");
+      node.style.background = "#ffe6e6";
+      node.style.color = "#c00";
+      node.style.marginRight = "4px";
+      node.appendChild(document.createTextNode(diff[i].value));
+    } else if (diff[i].added) {
+      node = document.createElement("ins");
+      node.style.background = "#e6ffe6";
+      node.style.color = "#0c0";
+      node.appendChild(document.createTextNode(diff[i].value));
+    } else {
+      node = document.createTextNode(diff[i].value);
+    }
+    fragment.appendChild(node);
+  }
+  return fragment;
+}
+
 class Tooltip {
   #tooltip: HTMLDivElement;
   #button: HTMLButtonElement;
   #text: HTMLParagraphElement;
   #hint: HTMLParagraphElement;
+  #result: string = "";
 
   constructor(zIndex: number, button: HTMLButtonElement) {
     this.#button = button;
@@ -208,20 +160,19 @@ class Tooltip {
       whiteSpace: "pre-wrap",
       width: "max-content",
       maxWidth: "300px",
-      maxHeight: "300px",
       overflow: "hidden",
       textOverflow: "ellipsis",
       fontFamily: "system-ui, Arial, sans-serif",
       boxShadow: "0 0 4px rgba(0, 0, 0, 0.2)",
       zIndex: `${zIndex}`,
+      userSelect: "text",
     });
-
-    this.#text.textContent = "Loading...";
 
     Object.assign(this.#text.style, {
       color: "#000",
       fontSize: "max(16px,1rem)",
       margin: "0",
+      cursor: "pointer",
     });
 
     Object.assign(this.#hint.style, {
@@ -231,30 +182,68 @@ class Tooltip {
       margin: "0",
     });
 
+    this.#text.addEventListener("click", this.#handleTextClick);
+
     this.#tooltip.appendChild(this.#hint);
     this.#tooltip.appendChild(this.#text);
-
     document.body.appendChild(this.#tooltip);
   }
 
+  #handleTextClick = async (e: MouseEvent) => {
+    if (window.getSelection()?.toString()) {
+      return;
+    }
+
+    try {
+      if (!this.#result) {
+        return;
+      }
+
+      await navigator.clipboard.writeText(this.#result);
+
+      const originalHint = this.#hint.textContent;
+      const originalDisplay = this.#hint.style.display;
+
+      this.hint = "Correction copied to clipboard!";
+
+      setTimeout(() => {
+        this.hint = originalHint;
+        this.#hint.style.display = originalDisplay;
+      }, 1500);
+    } catch (err) {
+      console.warn("Failed to copy text:", err);
+    }
+  };
+
   show() {
     this.#tooltip.style.display = "flex";
-
-    this.#updateTooltipPosition();
+    this.updatePosition();
   }
 
   hide() {
     this.#tooltip.style.display = "none";
   }
 
-  set text(text: string | DocumentFragment) {
-    if (text instanceof DocumentFragment) {
-      this.#text.textContent = "";
-      this.#text.appendChild(text);
+  updatePosition() {
+    computePosition(this.#button, this.#tooltip, {
+      placement: "bottom",
+      middleware: [offset({ mainAxis: 2 })],
+    }).then(({ x, y }) => {
+      Object.assign(this.#tooltip.style, {
+        left: `${x}px`,
+        top: `${y}px`,
+      });
+    });
+  }
+
+  set content(content: string | DocumentFragment) {
+    this.#text.textContent = "";
+    if (content instanceof DocumentFragment) {
+      this.#text.appendChild(content);
     } else {
-      this.#text.textContent = text;
+      this.#text.textContent = content;
     }
-    this.#updateTooltipPosition();
+    this.updatePosition();
   }
 
   set hint(text: string | null) {
@@ -265,51 +254,33 @@ class Tooltip {
       this.#hint.textContent = "";
       this.#hint.style.display = "none";
     }
-    this.#updateTooltipPosition();
+    this.updatePosition();
   }
 
-  #updateTooltipPosition() {
-    computePosition(this.#button, this.#tooltip, {
-      placement: "bottom",
-      middleware: [flip(), offset({ mainAxis: 2 })],
-    }).then(({ x, y }) => {
-      Object.assign(this.#tooltip.style, {
-        left: `${x}px`,
-        top: `${y}px`,
-      });
-    });
+  set result(text: string) {
+    this.#result = text;
+  }
+
+  contains(element: EventTarget | null): boolean {
+    return element instanceof Node && this.#tooltip.contains(element);
   }
 
   destroy() {
+    this.#text.removeEventListener("click", this.#handleTextClick);
     this.#tooltip.remove();
   }
 }
 
-const getButtonVerticalPadding = (rect: Rect) => {
-  if (rect.height < buttonSize + buttonPadding * 2) {
-    return Math.max(0, rect.height - buttonSize) / 2;
-  }
-
-  return buttonPadding;
-};
-
-type State =
-  | { type: "empty" }
-  | { type: "loading" }
-  | { type: "correct" }
-  | { type: "wrong"; text: DocumentFragment }
-  | { type: "error"; text: string };
-
 class Control {
   #button: HTMLButtonElement;
   #tooltip: Tooltip;
-
+  #isFocused: boolean = false;
+  #isTooltipVisible: boolean = false;
   #text: string = "";
   #result: string = "";
   #provider: Provider | null;
   #updateInterval: ReturnType<typeof setInterval> | null = null;
-  #isVisible: boolean = false;
-  #showButton: boolean = false;
+  #resetIconTimeout: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     public textArea: HTMLTextAreaElement | HTMLElement,
@@ -317,7 +288,7 @@ class Control {
   ) {
     this.#provider = provider;
     this.#button = document.createElement("button");
-    this.#button.innerHTML = loadingIcon;
+    this.#button.innerHTML = infoIcon;
     Object.assign(this.#button.style, {
       position: "absolute",
       zIndex: `${99999999999}`,
@@ -326,82 +297,128 @@ class Control {
       background: "transparent",
       cursor: "pointer",
       outline: "none",
+      opacity: "0",
+      pointerEvents: "none",
     });
     document.body.appendChild(this.#button);
     this.#tooltip = new Tooltip(99999999999, this.#button);
 
     this.updatePosition();
 
-    this.#button.addEventListener("mouseenter", () => this.#showTooltip());
-    this.#button.addEventListener("mouseleave", () => this.#hideTooltip());
-    this.#button.addEventListener("focus", () => this.#showTooltip());
-    this.#button.addEventListener("blur", () => this.#hideTooltip());
+    this.textArea.addEventListener("focus", this.#handleTextAreaFocus);
+    this.textArea.addEventListener("blur", this.#handleTextAreaBlur);
+    this.#button.addEventListener("click", this.#handleClick);
+    document.addEventListener("click", this.#handleClickOutside);
 
     this.#updateInterval = setInterval(() => {
       control?.updatePosition();
     }, 60);
+
+    this.#isFocused = document.activeElement === this.textArea;
+    this.#updateButtonVisibility();
   }
 
-  #showTooltip() {
-    if (this.#isCorrect) {
+  #handleTextAreaFocus = () => {
+    this.#isFocused = true;
+    this.#updateButtonVisibility();
+  };
+
+  #handleTextAreaBlur = (e: Event) => {
+    if (!(e instanceof FocusEvent)) {
       return;
     }
+
+    if (
+      e.relatedTarget === this.#button ||
+      this.#tooltip.contains(e.relatedTarget)
+    ) {
+      return;
+    }
+    this.#isFocused = false;
+    this.#updateButtonVisibility();
+  };
+
+  #handleClick = async () => {
+    if (this.#isTooltipVisible) {
+      if (this.#result) {
+        if (this.textArea instanceof HTMLTextAreaElement) {
+          this.textArea.value = this.#result;
+          this.#setState({ type: "correct" });
+        }
+      }
+      return;
+    }
+
+    await this.update();
+  };
+
+  #handleClickOutside = (event: MouseEvent) => {
+    if (
+      !this.#button.contains(event.target as Node) &&
+      !this.#tooltip.contains(event.target as Node) &&
+      event.target !== this.textArea
+    ) {
+      this.#hideTooltip();
+    }
+  };
+
+  #showTooltip() {
+    this.#isTooltipVisible = true;
     this.#tooltip.show();
   }
 
   #hideTooltip() {
+    this.#isTooltipVisible = false;
     this.#tooltip.hide();
   }
 
+  #updateButtonVisibility() {
+    const shouldShow = this.#isFocused;
+    this.#button.style.opacity = shouldShow ? "1" : "0";
+    this.#button.style.pointerEvents = shouldShow ? "auto" : "none";
+  }
+
   #setState(state: State) {
+    if (this.#resetIconTimeout) {
+      clearTimeout(this.#resetIconTimeout);
+      this.#resetIconTimeout = null;
+    }
+
     switch (state.type) {
-      case "empty":
-        this.#hide();
-        this.#tooltip.hint = null;
-        this.#button.removeEventListener("click", this.#handleWrongClick);
-        this.#button.removeEventListener("click", this.#handleErrorClick);
-        return;
       case "loading":
-        this.#show();
         this.#button.innerHTML = loadingIcon;
-        this.#tooltip.text = "Loading...";
-        this.#tooltip.hint = null;
         this.#button.style.cursor = "wait";
-        this.#button.removeEventListener("click", this.#handleWrongClick);
-        this.#button.removeEventListener("click", this.#handleErrorClick);
-        return;
-      case "correct":
-        this.#show();
-        this.#button.innerHTML = checkIcon;
-        this.#tooltip.hint = null;
-        this.#button.style.cursor = "default";
-        this.#button.removeEventListener("click", this.#handleWrongClick);
-        this.#button.removeEventListener("click", this.#handleErrorClick);
-
         this.#hideTooltip();
-
         return;
       case "wrong":
-        this.#show();
         this.#button.innerHTML = infoIcon;
-        this.#tooltip.text = state.text;
-        this.#tooltip.hint =
-          this.textArea instanceof HTMLTextAreaElement
-            ? "Click to replace"
-            : "Click to copy";
         this.#button.style.cursor = "pointer";
-
-        this.#button.addEventListener("click", this.#handleWrongClick);
-        this.#button.removeEventListener("click", this.#handleErrorClick);
+        this.#tooltip.content = state.diff;
+        this.#tooltip.result = this.#result;
+        this.#tooltip.hint = "Click to copy correction";
+        this.#showTooltip();
+        return;
+      case "correct":
+        this.#button.innerHTML = checkIcon;
+        this.#button.style.cursor = "pointer";
+        this.#hideTooltip();
+        this.#resetIconTimeout = setTimeout(() => {
+          this.#button.innerHTML = infoIcon;
+          this.#button.style.cursor = "pointer";
+        }, 1500);
         return;
       case "error":
-        this.#show();
-        this.#tooltip.hint = "Click to open documentation";
         this.#button.innerHTML = powerIcon;
-        this.#tooltip.text = state.text;
         this.#button.style.cursor = "pointer";
-        this.#button.removeEventListener("click", this.#handleWrongClick);
-        this.#button.addEventListener("click", this.#handleErrorClick);
+        this.#tooltip.content = "Failed to check grammar";
+        this.#tooltip.hint = "Click to try again";
+        this.#showTooltip();
+
+        this.#resetIconTimeout = setTimeout(() => {
+          this.#button.innerHTML = infoIcon;
+          this.#button.style.cursor = "pointer";
+          this.#hideTooltip();
+        }, 1500);
         return;
     }
   }
@@ -413,20 +430,14 @@ class Control {
         : this.textArea.innerText;
 
     this.#text = text;
-
     this.updatePosition();
 
     if (!this.#provider) {
-      this.#setState({
-        type: "error",
-        text: "AI is not supported. Please enable it in your browser settings.",
-      });
+      this.#setState({ type: "error" });
       return;
     }
 
-    // rarely works with single words
     if (text.trim().split(/\s+/).length < 2) {
-      this.#setState({ type: "empty" });
       return;
     }
 
@@ -434,30 +445,23 @@ class Control {
 
     const result = await resultFromPromise(this.#provider.fixGrammar(text));
 
-    if (this.#text !== text) {
-      return;
-    }
-
     if (!result.ok) {
-      const error = result.error as any;
-      console.warn(error);
-      const message = error?.message ?? error?.toString();
-      this.#setState({
-        type: "error",
-        text:
-          "Something went wrong. Please try again." +
-          (message ? ` (${message})` : ""),
-      });
+      console.warn(result.error);
+      this.#setState({ type: "error" });
       return;
     }
 
     this.#result = result.value;
 
-    if (this.#isCorrect) {
+    if (this.#text === this.#result) {
       this.#setState({ type: "correct" });
-    } else {
-      this.#setState({ type: "wrong", text: createDiff(text, result.value) });
+      return;
     }
+
+    this.#setState({
+      type: "wrong",
+      diff: createDiff(text, result.value),
+    });
   }
 
   public updatePosition() {
@@ -476,61 +480,16 @@ class Control {
         top: `${y}px`,
       });
     });
-
-    this.#isVisible = isVisible(this.#button, this.textArea);
-    this.#updateButtonVisibility();
-  }
-
-  #handleErrorClick = () => {
-    window
-      .open(
-        "https://github.com/nucleartux/ai-grammar?tab=readme-ov-file#ai-grammar",
-        "_blank",
-      )
-      ?.focus();
-  };
-
-  #handleWrongClick = async () => {
-    if (!this.#result || this.#isCorrect) {
-      return;
-    }
-    if (this.textArea instanceof HTMLTextAreaElement) {
-      this.textArea.value = this.#result;
-      this.#hide();
-    } else {
-      const type = "text/plain";
-      const blob = new Blob([this.#result], { type });
-      const data = [new ClipboardItem({ [type]: blob })];
-      await navigator.clipboard.write(data);
-      this.#tooltip.hint = "Copied to clipboard";
-    }
-  };
-
-  #updateButtonVisibility() {
-    if (this.#isVisible && this.#showButton) {
-      this.#button.style.opacity = "1";
-      this.#button.style.pointerEvents = "auto";
-    } else {
-      this.#button.style.opacity = "0";
-      this.#button.style.pointerEvents = "none";
-    }
-  }
-
-  #show() {
-    this.#showButton = true;
-    this.#updateButtonVisibility();
-  }
-
-  #hide() {
-    this.#showButton = false;
-    this.#updateButtonVisibility();
-  }
-
-  get #isCorrect() {
-    return this.#text === this.#result;
   }
 
   destroy() {
+    if (this.#resetIconTimeout) {
+      clearTimeout(this.#resetIconTimeout);
+    }
+    this.textArea.removeEventListener("focus", this.#handleTextAreaFocus);
+    this.textArea.removeEventListener("blur", this.#handleTextAreaBlur);
+    this.#button.removeEventListener("click", this.#handleClick);
+    document.removeEventListener("click", this.#handleClickOutside);
     this.#button.remove();
     this.#tooltip.destroy();
     if (this.#updateInterval) {
@@ -539,7 +498,7 @@ class Control {
   }
 
   isSameElement(el: EventTarget | null) {
-    return this.textArea === el || this.#button == el;
+    return this.textArea === el || this.#button === el;
   }
 }
 
@@ -553,14 +512,11 @@ const inputListener = (provider: Provider | null) => async (e: Event) => {
   }
 
   if (target === control?.textArea) {
-    control.update();
     return;
   }
 
   control?.destroy();
-
   control = new Control(target, provider);
-  control.update();
 };
 
 const focusListener = (provider: Provider | null) => async (e: Event) => {
@@ -577,11 +533,10 @@ const focusListener = (provider: Provider | null) => async (e: Event) => {
   control?.destroy();
 
   control = new Control(target, provider);
-  control.update();
 };
 
 const main = async () => {
-  const providers = [new OllamaProvider(), new GeminiProvider()];
+  const providers = [new DuckDuckGoProvider()];
 
   let provider: Provider | null = null;
 

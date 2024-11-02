@@ -1,9 +1,9 @@
 {
-  "name": "ai-grammar",
+  "name": "grammify",
   "displayName": "AI Grammar Checker",
-  "description": "Completely free and open source Chrome AI Grammar Check Extension",
-  "version": "0.3.1",
-  "author": "Igor Adrov",
+  "description": "Completely free and open source AI Grammar Checker",
+  "version": "1.0.0",
+  "author": "Vu Nguyen",
   "type": "module",
   "license": "MIT",
   "keywords": [
@@ -22,10 +22,7 @@
   },
   "dependencies": {
     "@floating-ui/dom": "^1.6.10",
-    "@types/diff": "^5.2.1",
-    "@types/dom-chromium-ai": "^0.0.0",
-    "diff": "^5.2.0",
-    "ollama": "^0.5.9"
+    "diff": "^5.2.0"
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.0-beta.25",
@@ -36,6 +33,7 @@
     "patch-package": "^8.0.0",
     "prettier": "^3.0.3",
     "typescript": "^5.2.2",
-    "vite": "^4.4.11"
+    "vite": "^4.4.11",
+    "@types/diff": "^5.2.1"
   }
 }
