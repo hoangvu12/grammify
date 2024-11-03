@@ -17,8 +17,7 @@
   "scripts": {
     "build": "tsc && vite build",
     "fmt": "prettier --write '**/*.{tsx,ts,json,css,scss,md}'",
-    "zip": "npm run build && node src/zip.js",
-    "postinstall": "patch-package"
+    "zip": "npm run build && node src/zip.js"
   },
   "dependencies": {
     "@floating-ui/dom": "^1.6.10",
@@ -30,7 +29,6 @@
     "@vitejs/plugin-react": "^4.1.0",
     "gulp": "^4.0.2",
     "gulp-zip": "^6.0.0",
-    "patch-package": "^8.0.0",
     "prettier": "^3.0.3",
     "typescript": "^5.2.2",
     "vite": "^4.4.11",
